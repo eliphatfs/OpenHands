@@ -156,6 +156,8 @@ async function main() {
     agentServerCmd.command,
     [
       ...agentServerCmd.args,
+      "--import-modules",
+      "t9s_model_registry",
       "--host",
       "127.0.0.1",
       "--port",
