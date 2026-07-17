@@ -6,6 +6,8 @@ import {
   buildRuntimeServicesSystemSuffix,
   buildStartConversationRequest,
   getDefaultConversationTitle,
+  isServerCreatedWorktree,
+  looksLikeDefaultWorktreeDir,
   toAppConversation,
   type DirectConversationInfo,
 } from "#/api/agent-server-adapter";
@@ -1064,6 +1066,82 @@ describe("toAppConversation", () => {
     }
   });
 
+  it("derives selected_workspace from the server working_dir when stored metadata is absent (cross-device recovery)", () => {
+    // No localStorage for this conversation — simulates a second device that
+    // never created it. A local_repo conversation keeps the user's selected
+    // path as working_dir, so it should be recovered verbatim.
+    const id = "11111111-2222-3333-4444-555555555555";
+    try {
+      const result = toAppConversation({
+        id,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        workspace: { working_dir: "/workspace/my-repo" },
+      });
+      expect(result.selected_workspace).toBe("/workspace/my-repo");
+    } finally {
+      removeStoredConversationMetadata(id);
+    }
+  });
+
+  it("falls back to null when the server working_dir is its per-conversation git worktree", () => {
+    // new_worktree + a git working_dir → the agent-server rewrites working_dir
+    // to /tmp/conversation-worktrees/<id>/...; the original selection is gone,
+    // so this conversation lands in the "No workspace" bucket across devices.
+    const id = "11111111-2222-3333-4444-555555555555";
+    try {
+      const result = toAppConversation({
+        id,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        workspace: {
+          working_dir: `/tmp/conversation-worktrees/${id}/agent-canvas`,
+        },
+      });
+      expect(result.selected_workspace).toBeNull();
+    } finally {
+      removeStoredConversationMetadata(id);
+    }
+  });
+
+  it("falls back to null when the server working_dir is the default no-selection path (last segment = stripped id)", () => {
+    // Default new_worktree + non-git dir → the server passes the client's
+    // buildConversationWorkingDir(id) path through verbatim; its last segment
+    // is the id with dashes stripped. That's a no-selection conversation.
+    const id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const stripped = id.replace(/-/g, "");
+    try {
+      const result = toAppConversation({
+        id,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        workspace: { working_dir: `/workspace/project/${stripped}` },
+      });
+      expect(result.selected_workspace).toBeNull();
+    } finally {
+      removeStoredConversationMetadata(id);
+    }
+  });
+
+  it("does not treat an unrelated hex last-segment as a default worktree path", () => {
+    // A user-selected workspace whose last segment is hex that does NOT equal
+    // this conversation's stripped id must be recovered, not dropped.
+    const id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    try {
+      const result = toAppConversation({
+        id,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+        workspace: { working_dir: "/home/me/projects/0123456789abcdef0123456789abcdef" },
+      });
+      expect(result.selected_workspace).toBe(
+        "/home/me/projects/0123456789abcdef0123456789abcdef",
+      );
+    } finally {
+      removeStoredConversationMetadata(id);
+    }
+  });
+
   it("hydrates active_profile from stored metadata so the switcher shows the exact profile (#1082)", () => {
     setStoredConversationMetadata(baseInfo.id, {
       selected_repository: null,
@@ -1221,6 +1299,61 @@ describe("toAppConversation", () => {
     });
     expect(result.agent_kind).toBe("openhands");
     expect(result.acp_server).toBeNull();
+  });
+});
+
+describe("selected_workspace derivation helpers", () => {
+  describe("isServerCreatedWorktree", () => {
+    it("matches the hardcoded agent-server worktree root", () => {
+      expect(
+        isServerCreatedWorktree(
+          "/tmp/conversation-worktrees/abc/repo/sub",
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects paths outside the worktree root", () => {
+      expect(isServerCreatedWorktree("/workspace/my-repo")).toBe(false);
+      expect(isServerCreatedWorktree("/home/me/tmp/conversation-worktrees/x")).toBe(
+        false,
+      );
+      expect(isServerCreatedWorktree("")).toBe(false);
+    });
+  });
+
+  describe("looksLikeDefaultWorktreeDir", () => {
+    const id = "11111111-2222-3333-4444-555555555555";
+    const stripped = id.replace(/-/g, "");
+
+    it("matches when the last segment equals the id with dashes stripped", () => {
+      expect(
+        looksLikeDefaultWorktreeDir(`/workspace/project/${stripped}`, id),
+      ).toBe(true);
+      expect(
+        looksLikeDefaultWorktreeDir(`/data/sessions/${stripped}`, id),
+      ).toBe(true);
+    });
+
+    it("is anchored to THIS conversation's id, not any hex segment", () => {
+      expect(
+        looksLikeDefaultWorktreeDir(
+          "/home/me/projects/0123456789abcdef0123456789abcdef",
+          id,
+        ),
+      ).toBe(false);
+    });
+
+    it("ignores a trailing slash before reading the last segment", () => {
+      expect(
+        looksLikeDefaultWorktreeDir(`/workspace/project/${stripped}/`, id),
+      ).toBe(true);
+    });
+
+    it("returns false when the id has no hex to strip", () => {
+      expect(looksLikeDefaultWorktreeDir("/workspace/project/foo", "")).toBe(
+        false,
+      );
+    });
   });
 });
 

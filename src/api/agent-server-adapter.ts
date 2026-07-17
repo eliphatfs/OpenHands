@@ -351,6 +351,60 @@ export function getDefaultConversationTitle(conversationId: string): string {
   return `Conversation ${conversationId.slice(0, 5)}`;
 }
 
+/**
+ * Hardcoded root the agent-server uses when it rewrites a conversation's
+ * working dir into a per-conversation git worktree (`worktree=True` + the
+ * selected dir is inside a git repo). Stable across devices, since it's a
+ * module-level constant in `openhands_agent_server.conversation_service`
+ * (`CONVERSATION_WORKTREE_ROOT = Path("/tmp/conversation-worktrees")`).
+ */
+const SERVER_WORKTREE_ROOT = "/tmp/conversation-worktrees/";
+
+/** True when `workingDir` is the per-conversation git worktree the agent-server created. */
+export function isServerCreatedWorktree(workingDir: string): boolean {
+  return workingDir.startsWith(SERVER_WORKTREE_ROOT);
+}
+
+/**
+ * True when `workingDir` is the *default* (no-user-selection) working dir the
+ * client sent for this conversation — i.e. `buildConversationWorkingDir(id)`,
+ * whose last path segment is the conversation id with dashes stripped. The
+ * match is exact against *this* conversation's own id (not "any hex segment"),
+ * so a user-selected workspace whose last segment is some unrelated hex never
+ * matches unless it coincidentally equals this conversation's stripped id.
+ */
+export function looksLikeDefaultWorktreeDir(
+  workingDir: string,
+  conversationId: string,
+): boolean {
+  const expectedHex = conversationId.replace(/-/g, "");
+  if (!expectedHex) return false;
+  const lastSegment = workingDir.replace(/\/+$/, "").split("/").pop() ?? "";
+  return lastSegment === expectedHex;
+}
+
+/**
+ * Derive `selected_workspace` from the server-reported `working_dir` when the
+ * client-side metadata store (localStorage) has none — i.e. when the list is
+ * loaded on a *different* device that never created the conversation. Returns
+ * `null` for conversations that had no explicit workspace selection:
+ *  - the agent-server's per-conversation git worktree (`/tmp/conversation-worktrees/...`)
+ *  - the client's default `<working-dir>/<stripped-id>` path
+ * Otherwise returns `workingDir` unchanged, which is the user's original
+ * selection for `local_repo` mode (and the server's pass-through for
+ * `new_worktree` against a non-git dir, where it gives up and returns the
+ * request path verbatim).
+ */
+function deriveSelectedWorkspaceFromWorkingDir(
+  workingDir: string | null | undefined,
+  conversationId: string,
+): string | null {
+  if (!workingDir) return null;
+  if (isServerCreatedWorktree(workingDir)) return null;
+  if (looksLikeDefaultWorktreeDir(workingDir, conversationId)) return null;
+  return workingDir;
+}
+
 export function toAppConversation(
   info: DirectConversationInfo,
 ): AppConversation {
@@ -376,7 +430,12 @@ export function toAppConversation(
     selected_repository: metadata?.selected_repository ?? null,
     selected_branch: metadata?.selected_branch ?? null,
     git_provider: metadata?.git_provider ?? null,
-    selected_workspace: metadata?.selected_workspace ?? null,
+    selected_workspace:
+      metadata?.selected_workspace ??
+      deriveSelectedWorkspaceFromWorkingDir(
+        info.workspace?.working_dir,
+        info.id,
+      ),
     active_profile: metadata?.active_profile ?? null,
     title: info.title?.trim()
       ? info.title
