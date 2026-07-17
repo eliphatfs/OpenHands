@@ -9,6 +9,7 @@ const baseAcp = {
   commandTokens: ["npx", "-y", "@zed-industries/claude-code-acp"],
   acpModel: "claude-opus-4-8",
   subAgentsEnabled: false,
+  autoWorkflowEnabled: false,
   toolConcurrencyField: undefined,
   toolConcurrency: "",
 };
@@ -82,15 +83,27 @@ describe("buildAgentProfileFields — OpenHands", () => {
     commandTokens: [],
     acpModel: "",
     subAgentsEnabled: true,
+    autoWorkflowEnabled: false,
     toolConcurrencyField: undefined,
     toolConcurrency: "",
   };
 
-  it("passes through enable_sub_agents and omits concurrency when the field is absent", () => {
+  it("passes through enable_sub_agents and enable_auto_workflow and omits concurrency when the field is absent", () => {
     expect(buildAgentProfileFields(baseOh)).toEqual({
       agent_kind: "openhands",
       enable_sub_agents: true,
+      enable_auto_workflow: false,
     });
+  });
+
+  it("passes enable_auto_workflow through when it is on", () => {
+    const fields = buildAgentProfileFields({
+      ...baseOh,
+      autoWorkflowEnabled: true,
+    });
+    if (fields.agent_kind === "openhands") {
+      expect(fields.enable_auto_workflow).toBe(true);
+    }
   });
 
   it("coerces a valid tool_concurrency_limit to a number", () => {

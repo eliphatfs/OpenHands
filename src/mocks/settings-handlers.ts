@@ -89,6 +89,21 @@ const MOCK_AGENT_SETTINGS_SCHEMA: NonNullable<
           required: false,
         },
         {
+          key: "enable_auto_workflow",
+          label: "Auto-workflow (ultracode)",
+          description:
+            "Automatically author and run a dynamic workflow for every substantive task (the OpenHands analogue of Claude Code's /effort ultracode). Requires sub-agents to be enabled; otherwise this has no effect.",
+          section: "general",
+          section_label: "General",
+          value_type: "boolean",
+          default: false,
+          choices: [],
+          depends_on: [],
+          prominence: "major",
+          secret: false,
+          required: false,
+        },
+        {
           key: "tool_concurrency_limit",
           label: "Parallel tool calls",
           description:
@@ -439,6 +454,7 @@ export const MOCK_DEFAULT_USER_SETTINGS: Settings = {
       condenser_max_size: null,
     },
     enable_sub_agents: false,
+    enable_auto_workflow: false,
     tool_concurrency_limit: 1,
   },
   conversation_settings_schema: MOCK_CONVERSATION_SETTINGS_SCHEMA,
