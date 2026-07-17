@@ -416,9 +416,22 @@ describe("buildStartConversationRequest", () => {
 
     const toolNames = payload.agent_settings.tools.map((t) => t.name);
     expect(toolNames).toContain("workflow_tool_set");
-    expect(payload.agent_settings.agent_context.system_message_suffix).toMatch(
-      /<ULTRACODE>/,
-    );
+    const suffix =
+      payload.agent_settings.agent_context.system_message_suffix ?? "";
+    expect(suffix).toMatch(/<ULTRACODE>/);
+    // The injected instruction must agree with the backend workflow tool's API
+    // (openhands/tools/workflow/definition.py): the `async def main(wf):`
+    // entry point, the documented `wf` primitives, and the critical
+    // "orchestrate only — don't do the engineering work in the script
+    // directly" guardrail. Drift here would mislead the agent about how to
+    // author a workflow script.
+    expect(suffix).toMatch(/async def main\(wf\):/);
+    expect(suffix).toMatch(/wf\.map_agents/);
+    expect(suffix).toMatch(/wf\.reduce_agent/);
+    expect(suffix).toMatch(/wf\.run_agent/);
+    expect(suffix).toMatch(/wf\.pipeline/);
+    expect(suffix).toMatch(/do not read\/write files/i);
+    expect(suffix).toMatch(/turn by turn/);
   });
 
   it("detects the ultracode keyword case-insensitively", () => {
