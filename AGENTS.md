@@ -277,6 +277,69 @@ Ensure each test is meaningful, concise, and covers a unique aspect of user inte
 - `@openhands/typescript-client` should be pinned to a released npm version rather than an unreleased commit SHA; when agent-canvas needs new client API, release the client first and then update the dependency. Released versions should include the typed clients, agent-server version compatibility helpers, `WorkspacesClient`, `ConversationClient.switchLLM`, and subpath exports for `events/remote-events-list` and `workspace/remote-workspace` needed by the agent-canvas agent-server integration. `RemoteWorkspace.gitChanges`/`gitDiff` accept an optional `{ ref }` option; agent-canvas passes `'HEAD'` so the changes panel reflects working-tree + index versus the latest commit (i.e. staged + unstaged) instead of a diff against the upstream/default branch.
 - If a GitHub-hosted git dependency is introduced, npm may normalize its lockfile URL to SSH. `scripts/vercel-install.sh` (wired through `vercel.json`) rewrites GitHub SSH URLs to HTTPS before `npm ci`; keep that generic protection in sync with any future git dependencies.
 
+### Hot-deploying a dev fix to the running Agent Canvas stack
+
+This environment runs a live Agent Canvas stack whose frontend is a **pre-built static bundle**, not the Vite dev server. The stack layout (confirmed on the 1.4.0 image):
+
+- `PID 1` = `/usr/local/bin/agent-canvas --port 6768 --publish` (the orchestrator; **do not restart it** — it tears down agent-server + automation + ingress with it).
+- `:6768` = `scripts/ingress.mjs` (PID 78867) — routes `/api/automation` → automation `:18001`, `/api`/`/sockets`/… → agent-server `:18000`, `/*` → frontend `:3001`. This never holds a fix; leave it alone.
+- `:3001` = `scripts/static-server.mjs --dir /opt/agent-canvas/build` (the frontend; **this is the only process that carries the fix and the only one to hot-restart**). Its parent is an interactive bash shell (it was launched manually in the background with `&`/`nohup`, *not* via `agent-canvas`'s `spawnService`), so killing it is **not** auto-respawned — you must relaunch it yourself with the exact same argv.
+- `/opt/agent-canvas` is an independent checkout of this repo (its own `.git`, tracking `origin/dev`), separate from `/project/OpenHands-ac`. Its `build/` is the npm-package pre-build (timestamped at image build). A fix on `dev` only reaches the running UI after that checkout is updated and rebuilt.
+
+The running `spawnService` (see `scripts/dev-with-automation.mjs`) does **not** respawn exited children — it only removes them from its `processes` map — so a killed frontend stays down until you relaunch it. That's why the hot-restart is a manual two-hop: rebuild, then relaunch the frontend only.
+
+Procedure (frontend-only hot-restart; agent-server/automation/ingress keep running, so in-flight conversations survive):
+
+```bash
+# 1. Update the running-stack checkout to the dev commit carrying the fix.
+cd /opt/agent-canvas
+git fetch origin
+git reset --hard origin/dev          # or: git checkout <fix-branch> && git pull
+
+# 2. Rebuild the static bundle in place. `build:app` runs make-i18n first.
+npm ci                               # only if package-lock changed since last build
+npm run build:app                    # overwrites /opt/agent-canvas/build/
+
+# 3. Verify the new code is actually in the bundle (grep a stable string
+#    you just added), so you don't restart on a stale build.
+grep -rl "<a-string-unique-to-your-fix>" build/assets/ | head
+
+# 4. Hot-restart ONLY the frontend. Pin the PID (never `pkill` a generic name).
+FE_PID=$(pgrep -f "static-server.mjs --dir /opt/agent-canvas/build")
+kill "$FE_PID" && sleep 1
+
+# 5. Relaunch with the EXACT same argv the orchestrator used. Copy the
+#    runtime-services-info blob verbatim from the old process's cmd line
+#    (`ps -o cmd= -p $FE_PID` before killing) — the frontend injects it
+#    into index.html so conversations get the correct <RUNTIME_SERVICES> suffix.
+nohup node /opt/agent-canvas/scripts/static-server.mjs \
+  --dir /opt/agent-canvas/build --port 3001 \
+  --session-api-key "$SESSION_API_KEY" \
+  --runtime-services-info '<JSON from the old argv>' \
+  --route /api/automation=http://localhost:18001 \
+  --route /api=http://localhost:18000 --route /sockets=http://localhost:18000 \
+  --route /server_info=http://localhost:18000 --route /health=http://localhost:18000 \
+  --route /ready=http://localhost:18000 --route /alive=http://localhost:18000 \
+  --route /docs=http://localhost:18000 --route /redoc=http://localhost:18000 \
+  --route /openapi.json=http://localhost:18000 \
+  > /tmp/agent-canvas-static.log 2>&1 &
+disown
+
+# 6. Smoke-test the new frontend is up and serving the rebuilt assets.
+curl -sS -o /dev/null -w '%{http_code}\n' http://localhost:3001/
+```
+
+Gotchas:
+
+- The running frontend was started with `--session-api-key` and a full `--runtime-services-info` JSON; relaunching without them changes auth/`<RUNTIME_SERVICES>` behavior mid-stack. Always copy the old argv rather than reconstructing from memory. Read it with `ps -o cmd= -p $FE_PID` (or `cat /proc/$FE_PID/cmdline | tr '\0' ' '`) **before** killing.
+- Don't kill the ingress (`ingress.mjs`) or `PID 1` — the ingress routes to `:3001`, so if you bring the frontend back up on the same port the ingress keeps working with no restart. If you must touch the ingress, restart it the same way (pin PID, copy argv), but it's unnecessary for a frontend-only fix.
+- `npm run build:app` requires `src/i18n/declaration.ts`; `build:app` runs `make-i18n` itself, so don't skip it. If the build fails on missing generated i18n, run `npm run make-i18n` once and retry.
+- If `package-lock.json` changed (a dep bump), run `npm ci` before rebuilding; a stale `node_modules` can produce a build that silently lacks the fix.
+- The agent-server (`:18000`) and automation (`:18001`) processes are independent `uvx` runs (children of `PID 1`) and are untouched by a frontend rebuild — active conversations keep their websocket and tool calls. This is what makes the hot-restart safe mid-session.
+- To check whether the running stack already has a given fix, grep the **built** bundle (not the source): `grep -rl "<fix-specific-string>" /opt/agent-canvas/build/assets/`. The source checkout being updated is not enough — only the built bundle is served.
+
+This procedure has been used before (the `build/` was last hot-rebuilt when `fix/frontend-rendering-loop-12681` landed on `dev`); record the commit you deployed to in the run notes so the next session can tell what's live.
+
 ## API Access Rules
 
 Two strict conventions govern every REST call in the frontend. Violations break CI
