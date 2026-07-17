@@ -115,14 +115,28 @@ const ULTRACODE_KEYWORD = "ultracode";
 // workflow for the task instead of working through it turn by turn. Shared by
 // the per-task keyword trigger and the persistent "auto workflow" agent
 // setting so both paths describe the runtime identically.
+//
+// Kept concise on purpose: the authoritative API surface and safety contract
+// already ship to the model as the `workflow` tool's own description (see the
+// backend `WorkflowTool`/`WorkflowToolSet` `_WORKFLOW_DESCRIPTION` in
+// openhands/tools/workflow/definition.py). This suffix is only the trigger
+// nudge — it restates the entry point and `wf` primitives, the critical
+// "orchestrate only, don't do the engineering work in the script directly"
+// guardrail, and the bounded-concurrency hint, then defers to the tool
+// description for the full spec.
 const WORKFLOW_INSTRUCTION_SUFFIX = [
   "<ULTRACODE>",
   "You have the workflow tool available. For substantive tasks that benefit",
   "from parallel sub-agents, author a Python workflow script with an",
   "`async def main(wf):` entry point and call the workflow tool to run it.",
-  "Use `wf.map_agents` to fan work out across sub-agents (bounded",
-  "concurrency) and `wf.reduce_agent` to synthesize their results. Keep",
-  "intermediate findings inside the workflow; return only the final report.",
+  "Coordinate sub-agents only through the `wf` object — use `wf.map_agents`",
+  "to fan work out (bounded `max_concurrency`; prefer 2–4 for LLM-heavy",
+  "work to avoid rate limits) and `wf.reduce_agent` to synthesize their",
+  "results. `wf.run_agent`, `wf.pipeline`, and `wf.flatten` are also",
+  "available. Do not read/write files, run shell commands, or do the",
+  "engineering work directly inside the script — sub-agents do that via",
+  "their own OpenHands tools and security policy. Keep intermediate",
+  "findings inside the workflow; return only the final report from `main()`.",
   "For ordinary one-step requests, work turn by turn as usual.",
   "</ULTRACODE>",
 ].join("\n");
