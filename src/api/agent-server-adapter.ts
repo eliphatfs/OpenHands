@@ -104,6 +104,43 @@ const TASK_TOOL_SET_NAME = "task_tool_set";
 // enable_sub_agents opt-in rather than always-on.
 const WORKFLOW_TOOL_SET_NAME = "workflow_tool_set";
 
+// Per-task opt-in keyword (case-insensitive) that makes the agent author and
+// run a dynamic workflow for the single task it appears in, mirroring Claude
+// Code's "ultracode" prompt keyword. When present in the user's first message
+// the workflow runtime is attached to the conversation and a workflow-authoring
+// instruction is appended to the system message suffix.
+const ULTRACODE_KEYWORD = "ultracode";
+
+// System-message instruction that tells the agent to author and run a dynamic
+// workflow for the task instead of working through it turn by turn. Shared by
+// the per-task keyword trigger and the persistent "auto workflow" agent
+// setting so both paths describe the runtime identically.
+const WORKFLOW_INSTRUCTION_SUFFIX = [
+  "<ULTRACODE>",
+  "You have the workflow tool available. For substantive tasks that benefit",
+  "from parallel sub-agents, author a Python workflow script with an",
+  "`async def main(wf):` entry point and call the workflow tool to run it.",
+  "Use `wf.map_agents` to fan work out across sub-agents (bounded",
+  "concurrency) and `wf.reduce_agent` to synthesize their results. Keep",
+  "intermediate findings inside the workflow; return only the final report.",
+  "For ordinary one-step requests, work turn by turn as usual.",
+  "</ULTRACODE>",
+].join("\n");
+
+// Returns true when the workflow runtime should be attached AND a
+// workflow-authoring instruction injected, for the given first message and
+// resolved agent settings. Triggered by the per-task `ultracode` keyword or by
+// the persistent `enable_auto_workflow` agent setting (the auto mode).
+function hasWorkflowTrigger(
+  query: string | undefined,
+  agentSettings: SettingsRecord,
+): boolean {
+  if (agentSettings.enable_auto_workflow === true) return true;
+  return (
+    typeof query === "string" && query.toLowerCase().includes(ULTRACODE_KEYWORD)
+  );
+}
+
 function browserToolsEnabled() {
   return import.meta.env.VITE_ENABLE_BROWSER_TOOLS !== "false";
 }
@@ -544,7 +581,11 @@ function isToolRecord(
   );
 }
 
-function shouldIncludeTool(name: string, agentSettings: SettingsRecord) {
+function shouldIncludeTool(
+  name: string,
+  agentSettings: SettingsRecord,
+  workflowTrigger: boolean,
+) {
   if (name === BROWSER_TOOL_SET_NAME) {
     return browserToolsEnabled() && isAgentServerToolAvailable(name);
   }
@@ -557,8 +598,13 @@ function shouldIncludeTool(name: string, agentSettings: SettingsRecord) {
   }
 
   if (name === WORKFLOW_TOOL_SET_NAME) {
+    // The workflow runtime is attached when either the user opted into
+    // sub-agents (the tool is available for the agent to use on demand) or a
+    // workflow trigger fired for this conversation (the per-task keyword or the
+    // persistent auto-workflow setting). In both cases the server must still
+    // advertise the toolset.
     return (
-      agentSettings.enable_sub_agents === true &&
+      (workflowTrigger || agentSettings.enable_sub_agents === true) &&
       isAgentServerToolAvailable(name)
     );
   }
@@ -566,11 +612,14 @@ function shouldIncludeTool(name: string, agentSettings: SettingsRecord) {
   return true;
 }
 
-function getAgentTools(agentSettings: SettingsRecord): AgentToolSpec[] {
+function getAgentTools(
+  agentSettings: SettingsRecord,
+  workflowTrigger: boolean,
+): AgentToolSpec[] {
   const tools = new Map<string, AgentToolSpec>();
 
   for (const name of DEFAULT_TOOL_NAMES) {
-    if (shouldIncludeTool(name, agentSettings)) {
+    if (shouldIncludeTool(name, agentSettings, workflowTrigger)) {
       tools.set(name, { name, params: {} });
     }
   }
@@ -580,7 +629,7 @@ function getAgentTools(agentSettings: SettingsRecord): AgentToolSpec[] {
     TASK_TOOL_SET_NAME,
     WORKFLOW_TOOL_SET_NAME,
   ]) {
-    if (shouldIncludeTool(name, agentSettings)) {
+    if (shouldIncludeTool(name, agentSettings, workflowTrigger)) {
       tools.set(name, { name, params: {} });
     }
   }
@@ -591,7 +640,7 @@ function getAgentTools(agentSettings: SettingsRecord): AgentToolSpec[] {
     configuredTools.every((tool) => isToolRecord(tool))
   ) {
     for (const tool of configuredTools) {
-      if (shouldIncludeTool(tool.name, agentSettings)) {
+      if (shouldIncludeTool(tool.name, agentSettings, workflowTrigger)) {
         tools.set(tool.name, {
           name: tool.name,
           params: toRecord(tool.params),
@@ -673,7 +722,10 @@ function buildBundledSkills(): BundledSkill[] {
   });
 }
 
-function buildAgentContext(agentSettings: SettingsRecord): SettingsRecord {
+function buildAgentContext(
+  agentSettings: SettingsRecord,
+  workflowTrigger: boolean,
+): SettingsRecord {
   const runtimeServicesSuffix = buildRuntimeServicesSystemSuffix();
   const existingContext = toRecord(agentSettings.agent_context);
 
@@ -683,6 +735,18 @@ function buildAgentContext(agentSettings: SettingsRecord): SettingsRecord {
     ? (existingContext.skills as SettingsRecord[])
     : [];
   const mergedSkills = [...existingSkills, ...buildBundledSkills()];
+
+  // The workflow-authoring instruction is appended to the system message suffix
+  // only when a workflow trigger fired for this conversation (the per-task
+  // `ultracode` keyword or the persistent auto-workflow setting). The runtime
+  // services block and the workflow instruction are independent suffix
+  // contributors; concatenate both so neither clobbers the other.
+  const suffixParts = [
+    runtimeServicesSuffix,
+    workflowTrigger ? WORKFLOW_INSTRUCTION_SUFFIX : undefined,
+  ].filter((part): part is string => typeof part === "string");
+  const systemMessageSuffix =
+    suffixParts.length > 0 ? suffixParts.join("\n\n") : undefined;
 
   return {
     ...existingContext,
@@ -699,8 +763,8 @@ function buildAgentContext(agentSettings: SettingsRecord): SettingsRecord {
     load_public_skills: false,
     load_user_skills: true,
     load_project_skills: true,
-    ...(runtimeServicesSuffix
-      ? { system_message_suffix: runtimeServicesSuffix }
+    ...(systemMessageSuffix
+      ? { system_message_suffix: systemMessageSuffix }
       : {}),
   };
 }
@@ -738,7 +802,9 @@ function buildConfiguredAcpAgentSettings(
   const agentSettings = toRecord(settings.agent_settings);
   const payload: AgentSettingsPayload = {
     agent_kind: "acp",
-    agent_context: buildAgentContext(agentSettings),
+    // ACP agents delegate to an external agent process and do not use the
+    // OpenHands workflow runtime, so the workflow trigger never applies here.
+    agent_context: buildAgentContext(agentSettings, false),
   };
 
   // TODO(#1019): set ``acp_isolate_data_dir: true`` here for a containerized
@@ -795,6 +861,7 @@ function buildConfiguredAcpAgentSettings(
 
 function buildConfiguredOpenHandsAgentSettings(
   settings: Settings,
+  query: string | undefined,
 ): AgentSettingsPayload {
   const agentSettings = toRecord(settings.agent_settings);
   const llm = toRecord(agentSettings.llm);
@@ -846,20 +913,23 @@ function buildConfiguredOpenHandsAgentSettings(
   // scrub it so it never leaks onto the OpenHands payload.
   delete agentSettings.acp_env;
 
+  const workflowTrigger = hasWorkflowTrigger(query, agentSettings);
+
   return {
     ...agentSettings,
     llm,
-    agent_context: buildAgentContext(agentSettings),
-    tools: getAgentTools(agentSettings),
+    agent_context: buildAgentContext(agentSettings, workflowTrigger),
+    tools: getAgentTools(agentSettings, workflowTrigger),
   };
 }
 
 function buildConfiguredAgentSettings(
   settings: Settings,
+  query: string | undefined,
 ): AgentSettingsPayload {
   return isAcpAgent(settings)
     ? buildConfiguredAcpAgentSettings(settings)
-    : buildConfiguredOpenHandsAgentSettings(settings);
+    : buildConfiguredOpenHandsAgentSettings(settings, query);
 }
 
 function buildConfiguredConversationSettings(options: {
@@ -960,7 +1030,10 @@ export function buildStartConversationRequest(
     : acpMode
       ? "acp"
       : "openhands";
-  const agentSettings = buildConfiguredAgentSettings(sourceAgentSettings);
+  const agentSettings = buildConfiguredAgentSettings(
+    sourceAgentSettings,
+    options.query,
+  );
   const acpServerTag = acpMode
     ? getAcpServerTag(sourceAgentSettings)
     : undefined;

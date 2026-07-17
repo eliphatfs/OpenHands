@@ -394,6 +394,111 @@ describe("buildStartConversationRequest", () => {
     expect(toolNames).not.toContain("workflow_tool_set");
   });
 
+  it("attaches workflow_tool_set and injects the workflow instruction when the query contains the ultracode keyword", () => {
+    mockIsAgentServerToolAvailable.mockReturnValue(true);
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          llm: { model: "nested-model" },
+        },
+      },
+      query: "ultracode: audit every API route for missing auth checks",
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+        agent_context: { system_message_suffix?: string };
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).toContain("workflow_tool_set");
+    expect(payload.agent_settings.agent_context.system_message_suffix).toMatch(
+      /<ULTRACODE>/,
+    );
+  });
+
+  it("detects the ultracode keyword case-insensitively", () => {
+    mockIsAgentServerToolAvailable.mockReturnValue(true);
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          llm: { model: "nested-model" },
+        },
+      },
+      query: "Please ULTRACODE this refactor across the monorepo",
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).toContain("workflow_tool_set");
+  });
+
+  it("does not inject the workflow instruction when the query lacks the keyword and sub-agents are disabled", () => {
+    mockIsAgentServerToolAvailable.mockReturnValue(true);
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          llm: { model: "nested-model" },
+        },
+      },
+      query: "refactor the auth module",
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+        agent_context: { system_message_suffix?: string };
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).not.toContain("workflow_tool_set");
+    expect(
+      payload.agent_settings.agent_context.system_message_suffix ?? "",
+    ).not.toMatch(/<ULTRACODE>/);
+  });
+
+  it("attaches workflow_tool_set and injects the workflow instruction when enable_auto_workflow is on, even without the keyword", () => {
+    mockIsAgentServerToolAvailable.mockReturnValue(true);
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          enable_auto_workflow: true,
+          llm: { model: "nested-model" },
+        },
+      },
+      query: "summarize the latest release notes",
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+        agent_context: { system_message_suffix?: string };
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).toContain("workflow_tool_set");
+    expect(payload.agent_settings.agent_context.system_message_suffix).toMatch(
+      /<ULTRACODE>/,
+    );
+  });
+
   it("derives confirmation and security settings the same way as OpenHands", () => {
     const payload = buildStartConversationRequest({
       settings: {

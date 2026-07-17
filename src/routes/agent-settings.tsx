@@ -45,6 +45,7 @@ export const handle = { hideTitle: true };
 type AgentType = "openhands" | "acp";
 
 const ENABLE_SUB_AGENTS_FIELD_KEY = "enable_sub_agents";
+const ENABLE_AUTO_WORKFLOW_FIELD_KEY = "enable_auto_workflow";
 const TOOL_CONCURRENCY_FIELD_KEY = "tool_concurrency_limit";
 const COMMAND_PLACEHOLDER_FALLBACK = "npx -y <package-name>";
 const ACP_CUSTOM_MODEL_KEY = "__custom_model__";
@@ -82,6 +83,20 @@ function getEnableSubAgentsValue(
   return field?.default === true;
 }
 
+function findEnableAutoWorkflowField(
+  fields: SettingsFieldSchema[] | undefined,
+): SettingsFieldSchema | undefined {
+  return fields?.find((field) => field.key === ENABLE_AUTO_WORKFLOW_FIELD_KEY);
+}
+
+function getEnableAutoWorkflowValue(
+  settingsValue: unknown,
+  field: SettingsFieldSchema | undefined,
+) {
+  if (typeof settingsValue === "boolean") return settingsValue;
+  return field?.default === true;
+}
+
 function isKnownAcpModel(
   provider: ACPProviderConfig | undefined,
   model: string,
@@ -99,6 +114,7 @@ export type AgentProfileFieldsDraft =
   | {
       agent_kind: "openhands";
       enable_sub_agents: boolean;
+      enable_auto_workflow?: boolean;
       tool_concurrency_limit?: number;
     }
   | {
@@ -119,6 +135,7 @@ export interface AgentProfileFieldsInput {
   commandTokens: string[];
   acpModel: string;
   subAgentsEnabled: boolean;
+  autoWorkflowEnabled: boolean;
   toolConcurrencyField?: SettingsFieldSchema;
   toolConcurrency: string | boolean;
 }
@@ -151,6 +168,7 @@ export function buildAgentProfileFields(
     commandTokens,
     acpModel,
     subAgentsEnabled,
+    autoWorkflowEnabled,
     toolConcurrencyField,
     toolConcurrency,
   } = input;
@@ -171,6 +189,7 @@ export function buildAgentProfileFields(
     {
       agent_kind: "openhands",
       enable_sub_agents: subAgentsEnabled,
+      enable_auto_workflow: autoWorkflowEnabled,
     };
   if (toolConcurrencyField) {
     // Reuse the schema-driven coercion/validation; throws on bad input.
@@ -259,6 +278,22 @@ export function AgentSettingsScreen({
   );
   const [subAgentsEnabled, setSubAgentsEnabled] = useState(
     initialSubAgentsEnabled,
+  );
+
+  // --- Auto-workflow (OpenHands path) ---
+  // Surfaced only when the backend schema exposes the field, so older
+  // agent-servers that predate ``enable_auto_workflow`` hide it cleanly.
+  const autoWorkflowField = findEnableAutoWorkflowField(fields);
+  const initialAutoWorkflowEnabled = React.useMemo(
+    () =>
+      getEnableAutoWorkflowValue(
+        agentSettingsSource?.[ENABLE_AUTO_WORKFLOW_FIELD_KEY],
+        autoWorkflowField,
+      ),
+    [autoWorkflowField, agentSettingsSource],
+  );
+  const [autoWorkflowEnabled, setAutoWorkflowEnabled] = useState(
+    initialAutoWorkflowEnabled,
   );
 
   // --- Parallel tool calls (OpenHands path) ---
@@ -358,6 +393,11 @@ export function AgentSettingsScreen({
     setSubAgentsEnabled(initialSubAgentsEnabled);
   }, [initialSubAgentsEnabled]);
 
+  // Sync the auto-workflow toggle when settings reload
+  useEffect(() => {
+    setAutoWorkflowEnabled(initialAutoWorkflowEnabled);
+  }, [initialAutoWorkflowEnabled]);
+
   // Sync the parallel-tool-calls input when settings reload
   useEffect(() => {
     setToolConcurrency(initialToolConcurrency);
@@ -370,6 +410,7 @@ export function AgentSettingsScreen({
   const buildFieldsRef = useRef<() => AgentProfileFieldsDraft>(() => ({
     agent_kind: "openhands",
     enable_sub_agents: false,
+    enable_auto_workflow: false,
   }));
   const stableBuildFields = useCallback(() => buildFieldsRef.current(), []);
   const credFormRef = useRef(acpCredentialForm);
@@ -441,15 +482,17 @@ export function AgentSettingsScreen({
       commandTokens,
       acpModel,
       subAgentsEnabled,
+      autoWorkflowEnabled,
       toolConcurrencyField,
       toolConcurrency,
     });
 
-  // Dirty tracking: for OpenHands path, also check sub-agents toggle and the
-  // parallel-tool-calls input.
+  // Dirty tracking: for OpenHands path, also check the sub-agents toggle, the
+  // auto-workflow toggle, and the parallel-tool-calls input.
   const isOpenHandsDirty =
     !isAcp &&
     (subAgentsEnabled !== initialSubAgentsEnabled ||
+      autoWorkflowEnabled !== initialAutoWorkflowEnabled ||
       toolConcurrency !== initialToolConcurrency);
   const settingsDirty = isDirty || isOpenHandsDirty;
   // The single Save covers both the agent spec and ACP credentials, so it is
@@ -516,11 +559,19 @@ export function AgentSettingsScreen({
         },
       );
     } else {
-      // OpenHands path: save agent_kind + sub-agents toggle + parallel tool calls
+      // OpenHands path: save agent_kind + sub-agents + auto-workflow toggles
+      // + parallel tool calls.
       const agentSettingsDiff: Record<string, SettingsValue> = {
         agent_kind: "openhands",
         enable_sub_agents: subAgentsEnabled,
       };
+
+      // Only persist the auto-workflow flag when the backend schema exposes the
+      // field, so older agent-servers that predate ``enable_auto_workflow``
+      // never receive an unknown-key error.
+      if (autoWorkflowField) {
+        agentSettingsDiff[ENABLE_AUTO_WORKFLOW_FIELD_KEY] = autoWorkflowEnabled;
+      }
 
       if (toolConcurrencyField) {
         let coerced: SettingsValue;
@@ -570,6 +621,19 @@ export function AgentSettingsScreen({
         subAgentsField.description,
       )
     : t(I18nKey.SCHEMA$ENABLE_SUB_AGENTS$DESCRIPTION);
+
+  // Auto-workflow field metadata for OpenHands section. Surfaced only when the
+  // backend schema exposes the field.
+  const autoWorkflowLabel = autoWorkflowField
+    ? resolveSchemaFieldLabel(t, autoWorkflowField.key, autoWorkflowField.label)
+    : t(I18nKey.SCHEMA$ENABLE_AUTO_WORKFLOW$LABEL);
+  const autoWorkflowDescription = autoWorkflowField
+    ? resolveSchemaFieldDescription(
+        t,
+        autoWorkflowField.key,
+        autoWorkflowField.description,
+      )
+    : t(I18nKey.SCHEMA$ENABLE_AUTO_WORKFLOW$DESCRIPTION);
 
   return (
     <div
@@ -636,6 +700,30 @@ export function AgentSettingsScreen({
               )}
             >
               {subAgentsDescription}
+            </Typography.Paragraph>
+          ) : null}
+        </div>
+      )}
+
+      {!isAcp && autoWorkflowField && (
+        <div className="flex flex-col gap-1.5">
+          <SettingsSwitch
+            testId="agent-settings-enable-auto-workflow"
+            isToggled={autoWorkflowEnabled}
+            onToggle={(val) => {
+              setAutoWorkflowEnabled(val);
+            }}
+          >
+            {autoWorkflowLabel}
+          </SettingsSwitch>
+          {autoWorkflowDescription ? (
+            <Typography.Paragraph
+              className={cn(
+                formControlSwitchDescriptionClassName,
+                "text-tertiary-alt text-xs leading-5",
+              )}
+            >
+              {autoWorkflowDescription}
             </Typography.Paragraph>
           ) : null}
         </div>
