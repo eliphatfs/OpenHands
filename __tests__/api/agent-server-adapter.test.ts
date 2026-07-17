@@ -139,6 +139,7 @@ describe("buildStartConversationRequest", () => {
       { name: "task_tracker", params: {} },
       { name: "browser_tool_set", params: {} },
       { name: "task_tool_set", params: {} },
+      { name: "workflow_tool_set", params: {} },
     ]);
     expect(payload.agent_settings.agent_context).toMatchObject({
       load_public_skills: false,
@@ -321,6 +322,78 @@ describe("buildStartConversationRequest", () => {
 
     const toolNames = payload.agent_settings.tools.map((t) => t.name);
     expect(toolNames).not.toContain("task_tool_set");
+  });
+
+  it("includes workflow_tool_set when sub-agents are enabled and the server advertises it", () => {
+    mockIsAgentServerToolAvailable.mockImplementation(
+      (toolName: string) => toolName === "workflow_tool_set",
+    );
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: true,
+          llm: { model: "nested-model" },
+        },
+      },
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).toContain("workflow_tool_set");
+  });
+
+  it("omits workflow_tool_set when sub-agents are disabled even if the server advertises it", () => {
+    mockIsAgentServerToolAvailable.mockImplementation(
+      (toolName: string) => toolName === "workflow_tool_set",
+    );
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          llm: { model: "nested-model" },
+        },
+      },
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).not.toContain("workflow_tool_set");
+  });
+
+  it("omits workflow_tool_set when the server does not advertise it even if sub-agents are enabled", () => {
+    mockIsAgentServerToolAvailable.mockImplementation(
+      (toolName: string) => toolName !== "workflow_tool_set",
+    );
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: true,
+          llm: { model: "nested-model" },
+        },
+      },
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).not.toContain("workflow_tool_set");
   });
 
   it("derives confirmation and security settings the same way as OpenHands", () => {

@@ -97,6 +97,12 @@ export interface DirectConversationInfo {
 const DEFAULT_TOOL_NAMES = ["terminal", "file_editor", "task_tracker"];
 const BROWSER_TOOL_SET_NAME = "browser_tool_set";
 const TASK_TOOL_SET_NAME = "task_tool_set";
+// workflow_tool_set gives the agent the SDK's dynamic-workflow runtime so it can
+// write a Python workflow script and fan it out across sub-agents (the
+// OpenHands analogue of Claude Code's "ultracode" dynamic workflows). Like
+// task_tool_set it is a scale-out capability, so it is gated on the same
+// enable_sub_agents opt-in rather than always-on.
+const WORKFLOW_TOOL_SET_NAME = "workflow_tool_set";
 
 function browserToolsEnabled() {
   return import.meta.env.VITE_ENABLE_BROWSER_TOOLS !== "false";
@@ -609,6 +615,13 @@ function shouldIncludeTool(name: string, agentSettings: SettingsRecord) {
     );
   }
 
+  if (name === WORKFLOW_TOOL_SET_NAME) {
+    return (
+      agentSettings.enable_sub_agents === true &&
+      isAgentServerToolAvailable(name)
+    );
+  }
+
   return true;
 }
 
@@ -621,7 +634,11 @@ function getAgentTools(agentSettings: SettingsRecord): AgentToolSpec[] {
     }
   }
 
-  for (const name of [BROWSER_TOOL_SET_NAME, TASK_TOOL_SET_NAME]) {
+  for (const name of [
+    BROWSER_TOOL_SET_NAME,
+    TASK_TOOL_SET_NAME,
+    WORKFLOW_TOOL_SET_NAME,
+  ]) {
     if (shouldIncludeTool(name, agentSettings)) {
       tools.set(name, { name, params: {} });
     }
