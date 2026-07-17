@@ -100,8 +100,9 @@ const TASK_TOOL_SET_NAME = "task_tool_set";
 // workflow_tool_set gives the agent the SDK's dynamic-workflow runtime so it can
 // write a Python workflow script and fan it out across sub-agents (the
 // OpenHands analogue of Claude Code's "ultracode" dynamic workflows). Like
-// task_tool_set it is a scale-out capability, so it is gated on the same
-// enable_sub_agents opt-in rather than always-on.
+// task_tool_set it is a scale-out capability, so it is gated on
+// enable_sub_agents OR a per-task/per-session workflow trigger (the
+// "ultracode" keyword / enable_auto_workflow), rather than always-on.
 const WORKFLOW_TOOL_SET_NAME = "workflow_tool_set";
 
 // Per-task opt-in keyword (case-insensitive) that makes the agent author and
@@ -109,7 +110,7 @@ const WORKFLOW_TOOL_SET_NAME = "workflow_tool_set";
 // Code's "ultracode" prompt keyword. When present in the user's first message
 // the workflow runtime is attached to the conversation and a workflow-authoring
 // instruction is appended to the system message suffix.
-const ULTRACODE_KEYWORD = "ultracode";
+const ULTRACODE_KEYWORD_RE = /\bultracode\b/i;
 
 // System-message instruction that tells the agent to author and run a dynamic
 // workflow for the task instead of working through it turn by turn. Shared by
@@ -150,9 +151,7 @@ function hasWorkflowTrigger(
   agentSettings: SettingsRecord,
 ): boolean {
   if (agentSettings.enable_auto_workflow === true) return true;
-  return (
-    typeof query === "string" && query.toLowerCase().includes(ULTRACODE_KEYWORD)
-  );
+  return typeof query === "string" && ULTRACODE_KEYWORD_RE.test(query);
 }
 
 function browserToolsEnabled() {

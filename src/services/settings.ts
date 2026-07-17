@@ -55,8 +55,9 @@ export const DEFAULT_SETTINGS: Settings = {
     // Auto-workflow mode (the OpenHands analogue of Claude Code's
     // /effort ultracode): when on, the agent is told to author and run a
     // dynamic workflow for every substantive task instead of working turn by
-    // turn. Opt-in by default; the effect is gated on the workflow runtime being
-    // available, so turning this on without enable_sub_agents is a no-op.
+    // turn. Opt-in by default. Independent of enable_sub_agents — the workflow
+    // runtime spawns its own sub-agents, so this works standalone as long as the
+    // server advertises workflow_tool_set.
     enable_auto_workflow: false,
     mcp_config: {},
   },

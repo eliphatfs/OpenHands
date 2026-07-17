@@ -92,7 +92,7 @@ const MOCK_AGENT_SETTINGS_SCHEMA: NonNullable<
           key: "enable_auto_workflow",
           label: "Auto-workflow (ultracode)",
           description:
-            "Automatically author and run a dynamic workflow for every substantive task (the OpenHands analogue of Claude Code's /effort ultracode). Requires sub-agents to be enabled; otherwise this has no effect.",
+            "Automatically author and run a dynamic workflow for every substantive task (the OpenHands analogue of Claude Code's /effort ultracode). When off, use the `ultracode` keyword in a message to trigger a workflow for that task only.",
           section: "general",
           section_label: "General",
           value_type: "boolean",

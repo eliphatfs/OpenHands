@@ -486,6 +486,33 @@ describe("buildStartConversationRequest", () => {
     ).not.toMatch(/<ULTRACODE>/);
   });
 
+  it("does not fire on a substring like 'ultracoder' that merely contains the keyword", () => {
+    mockIsAgentServerToolAvailable.mockReturnValue(true);
+
+    const payload = buildStartConversationRequest({
+      settings: {
+        ...DEFAULT_SETTINGS,
+        agent_settings: {
+          ...DEFAULT_SETTINGS.agent_settings,
+          enable_sub_agents: false,
+          enable_auto_workflow: false,
+        },
+      },
+      query: "use the ultracoder extension to format this",
+    }) as {
+      agent_settings: {
+        tools: Array<{ name: string; params: Record<string, unknown> }>;
+        agent_context: { system_message_suffix?: string };
+      };
+    };
+
+    const toolNames = payload.agent_settings.tools.map((t) => t.name);
+    expect(toolNames).not.toContain("workflow_tool_set");
+    expect(
+      payload.agent_settings.agent_context.system_message_suffix ?? "",
+    ).not.toMatch(/<ULTRACODE>/);
+  });
+
   it("attaches workflow_tool_set and injects the workflow instruction when enable_auto_workflow is on, even without the keyword", () => {
     mockIsAgentServerToolAvailable.mockReturnValue(true);
 
@@ -1132,7 +1159,9 @@ describe("toAppConversation", () => {
         id,
         created_at: "2026-01-01T00:00:00Z",
         updated_at: "2026-01-01T00:00:00Z",
-        workspace: { working_dir: "/home/me/projects/0123456789abcdef0123456789abcdef" },
+        workspace: {
+          working_dir: "/home/me/projects/0123456789abcdef0123456789abcdef",
+        },
       });
       expect(result.selected_workspace).toBe(
         "/home/me/projects/0123456789abcdef0123456789abcdef",
@@ -1306,17 +1335,15 @@ describe("selected_workspace derivation helpers", () => {
   describe("isServerCreatedWorktree", () => {
     it("matches the hardcoded agent-server worktree root", () => {
       expect(
-        isServerCreatedWorktree(
-          "/tmp/conversation-worktrees/abc/repo/sub",
-        ),
+        isServerCreatedWorktree("/tmp/conversation-worktrees/abc/repo/sub"),
       ).toBe(true);
     });
 
     it("rejects paths outside the worktree root", () => {
       expect(isServerCreatedWorktree("/workspace/my-repo")).toBe(false);
-      expect(isServerCreatedWorktree("/home/me/tmp/conversation-worktrees/x")).toBe(
-        false,
-      );
+      expect(
+        isServerCreatedWorktree("/home/me/tmp/conversation-worktrees/x"),
+      ).toBe(false);
       expect(isServerCreatedWorktree("")).toBe(false);
     });
   });
