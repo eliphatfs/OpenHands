@@ -24,7 +24,18 @@ const TAB_CONFIG = {
 };
 
 export function ConversationTabContent() {
-  const { selectedTab, shouldShownAgentLoading } = useConversationStore();
+  // Scope the store subscription to exactly the slices this component reads.
+  // A bare `useConversationStore()` subscribes to the *entire* store, so
+  // unrelated state churn (notably `messageToSend`, which the chat input
+  // updates on every keystroke) would re-render this whole subtree —
+  // including the lazily-mounted FilesTab and its (un-memoized) Prism
+  // syntax highlighter. That re-rendered the Files tab's file contents on
+  // every keystroke, which re-tokenized large single-line files (e.g. a
+  // 90k-char minified JSON) and caused multi-second input lag.
+  const selectedTab = useConversationStore((s) => s.selectedTab);
+  const shouldShownAgentLoading = useConversationStore(
+    (s) => s.shouldShownAgentLoading,
+  );
   const { conversationId } = useConversationId();
 
   const activeTab = useMemo(
