@@ -17,15 +17,23 @@ vi.mock("#/hooks/use-conversation-id", () => ({
   }),
 }));
 
+// Mock lazy-loaded components. The files-tab mock counts renders so the
+// store-selector-scoping test can assert an unrelated store slice (e.g.
+// messageToSend, which the chat input updates every keystroke) does NOT
+// re-render the tab subtree. Use `vi.hoisted` so the counter is initialized
+// before the hoisted `vi.mock` factory runs.
+const filesTabCounter = vi.hoisted(() => ({ count: 0 }));
 
-
-// Mock lazy-loaded components
 vi.mock("#/routes/files-tab", () => ({
-  default: () => <div data-testid="files-tab-content">Files Tab Content</div>,
+  default: () => {
+    filesTabCounter.count += 1;
+    return <div data-testid="files-tab-content">Files Tab Content</div>;
+  },
 }));
 
 // Control for lazy loading test
-let pendingBrowserTab: { promise: Promise<void>; resolve: () => void } | null = null;
+let pendingBrowserTab: { promise: Promise<void>; resolve: () => void } | null =
+  null;
 vi.mock("#/routes/browser-tab", () => ({
   default: () => {
     if (pendingBrowserTab) {
@@ -60,7 +68,9 @@ describe("ConversationTabContent", () => {
   const createWrapper = () => {
     return ({ children }: { children: React.ReactNode }) => (
       <MemoryRouter initialEntries={["/conversations/test-conversation-id"]}>
-        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
       </MemoryRouter>
     );
   };
@@ -262,6 +272,38 @@ describe("ConversationTabContent", () => {
       await waitFor(() => {
         expect(screen.getByTestId("terminal-tab-content")).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("Store selector scoping", () => {
+    // Regression: a bare `useConversationStore()` subscribed to the whole
+    // store, so `messageToSend` churn (updated by the chat input on every
+    // keystroke) re-rendered this whole subtree — including the Files tab
+    // and its (un-memoized) Prism highlighter, which re-tokenized large
+    // files and froze the input. The component must only re-render for the
+    // slices it actually reads (selectedTab, shouldShownAgentLoading).
+    it("does not re-render when an unrelated store slice (messageToSend) changes", async () => {
+      filesTabCounter.count = 0;
+      setSelectedTab("files");
+
+      render(<ConversationTabContent />, { wrapper: createWrapper() });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("files-tab-content")).toBeInTheDocument();
+      });
+      const rendersAfterMount = filesTabCounter.count;
+      expect(rendersAfterMount).toBeGreaterThanOrEqual(1);
+
+      // Simulate a keystroke: the chat input writes messageToSend to the
+      // shared conversation store on every keystroke.
+      useConversationStore.setState({
+        messageToSend: { Files: [{ content: "a" }] },
+      } as never);
+
+      // Give any stale subscription a chance to flush.
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(filesTabCounter.count).toBe(rendersAfterMount);
     });
   });
 

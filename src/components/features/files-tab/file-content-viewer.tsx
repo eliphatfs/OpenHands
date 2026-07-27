@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { I18nKey } from "#/i18n/declaration";
@@ -66,7 +67,10 @@ function UnpreviewableFallback({ path }: { path: string }) {
  * load naturally. In `plain` mode we always show the raw bytes as text (or
  * a fallback message for binaries).
  */
-export function FileContentViewer({ path, viewMode }: FileContentViewerProps) {
+export const FileContentViewer = memo(function FileContentViewer({
+  path,
+  viewMode,
+}: FileContentViewerProps) {
   const { t } = useTranslation("openhands");
   const query = useWorkspaceFileContent(path);
   // Subscribe to the workspace mutation counter so the iframe / <img> src
@@ -225,4 +229,4 @@ export function FileContentViewer({ path, viewMode }: FileContentViewerProps) {
   // Truly unknown / empty payload — show a fallback so the pane is never
   // blank.
   return <UnpreviewableFallback path={path} />;
-}
+});
