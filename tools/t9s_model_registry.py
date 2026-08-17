@@ -40,7 +40,22 @@ _GLM52 = {
     "mode": "chat",
 }
 
+_KIMIK3 = {
+    "supports_vision": True,
+    "supports_function_calling": True,
+    "supports_parallel_function_calling": True,
+    "supports_system_messages": True,
+    "supports_prompt_caching": False,
+    "litellm_provider": "openai",
+    "max_input_tokens": 370000,
+    "max_output_tokens": 100000,
+    "max_tokens": 100000,
+    "mode": "chat",
+}
+
 for _name in ("openai/t9s/gemma-4", "t9s/gemma-4"):
     litellm.model_cost[_name] = dict(_GEMMA4)
 for _name in ("openai/t9s/glm-5.2", "t9s/glm-5.2"):
     litellm.model_cost[_name] = dict(_GLM52)
+for _name in ("openai/t9s/kimi-k3", "t9s/kimi-k3"):
+    litellm.model_cost[_name] = dict(_KIMIK3)
