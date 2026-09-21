@@ -27,6 +27,9 @@ const IDENTICAL_VALUE_ALLOWLIST = new Set([
   'GITHUB$AUTH_SCOPE',
   'LAUNCH$PLUGIN_PATH',
   'LAUNCH$PLUGIN_REF',
+  // Mermaid render failures are a developer-facing diagnostic; translating the
+  // sentence does not help and the English copy is correct in every locale.
+  'MERMAID$INVALID_DIAGRAM',
   'SCHEMA$LLM$SECTION_LABEL',
   'SCHEMA$LLM$TOP_K$LABEL',
   'SCHEMA$LLM$TOP_P$LABEL',
