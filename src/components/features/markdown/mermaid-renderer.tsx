@@ -35,6 +35,11 @@ const PURIFY_CONFIG = {
   FORBID_TAGS: ["script", "foreignObject"],
 };
 
+// Mermaid draws failed parses as an internal `<g class="error">` diagram rather
+// than rejecting; `render` then resolves with "Syntax error in text" as an SVG.
+const isErrorDiagram = (svg: string) =>
+  /<g[^>]*class="[^"]*\berror\b[^"]*">/.test(svg);
+
 export default function MermaidRenderer({ chart }: { chart: string }) {
   const { t } = useTranslation("openhands");
   const [svg, setSvg] = React.useState<string | null>(null);
@@ -42,14 +47,27 @@ export default function MermaidRenderer({ chart }: { chart: string }) {
 
   React.useEffect(() => {
     let cancelled = false;
+    const renderId = `mermaid-svg-${++mermaidSeq}`;
     mermaid
-      .render(`mermaid-svg-${++mermaidSeq}`, chart)
+      .render(renderId, chart)
       .then(({ svg }) => {
-        if (!cancelled)
+        // Mermaid can resolve while still handing back its internal error
+        // diagram (`<g class="error">`), e.g. a recoverable syntax problem that
+        // shows "Syntax error in text". Treat that as a failure so the user
+        // gets the source fallback instead of the error image.
+        if (!cancelled && isErrorDiagram(svg)) setFailed(true);
+        else if (!cancelled)
           setSvg(DOMPurify.sanitize(svg, PURIFY_CONFIG) as unknown as string);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
+      })
+      // Mermaid renders into a scratch `<div id="d{renderId}">` appended to
+      // `document.body`. It removes the node on success but leaves the error
+      // diagram behind on failure, which leaks a "Syntax error in text" box
+      // into the page. Drop it either way.
+      .finally(() => {
+        document.getElementById(`d${renderId}`)?.remove();
       });
     return () => {
       cancelled = true;
