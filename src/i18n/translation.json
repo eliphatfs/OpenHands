@@ -24394,6 +24394,23 @@
     "uk": "Сховати дерево файлів",
     "ca": "Amaga l'arbre de fitxers"
   },
+  "MERMAID$INVALID_DIAGRAM": {
+    "en": "Mermaid diagram could not be rendered — showing its source instead.",
+    "ar": "Mermaid diagram could not be rendered — showing its source instead.",
+    "ca": "Mermaid diagram could not be rendered — showing its source instead.",
+    "de": "Mermaid diagram could not be rendered — showing its source instead.",
+    "es": "Mermaid diagram could not be rendered — showing its source instead.",
+    "fr": "Mermaid diagram could not be rendered — showing its source instead.",
+    "it": "Mermaid diagram could not be rendered — showing its source instead.",
+    "ja": "Mermaid diagram could not be rendered — showing its source instead.",
+    "ko-KR": "Mermaid diagram could not be rendered — showing its source instead.",
+    "no": "Mermaid diagram could not be rendered — showing its source instead.",
+    "pt": "Mermaid diagram could not be rendered — showing its source instead.",
+    "tr": "Mermaid diagram could not be rendered — showing its source instead.",
+    "uk": "Mermaid diagram could not be rendered — showing its source instead.",
+    "zh-CN": "Mermaid diagram could not be rendered — showing its source instead.",
+    "zh-TW": "Mermaid diagram could not be rendered — showing its source instead."
+  },
   "COMMON$PLANNER": {
     "en": "Planner",
     "ja": "プランナー",

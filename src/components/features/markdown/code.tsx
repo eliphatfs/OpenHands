@@ -4,6 +4,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { CopyableContentWrapper } from "#/components/shared/buttons/copyable-content-wrapper";
 import { cn } from "#/utils/utils";
 import { SyntaxHighlighter } from "./syntax-highlighter";
+import { MermaidBlock } from "./mermaid";
 
 // See https://github.com/remarkjs/react-markdown?tab=readme-ov-file#use-custom-components-syntax-highlight
 
@@ -42,6 +43,13 @@ export function code({
         </pre>
       </CopyableContentWrapper>
     );
+  }
+
+  // `mermaid` is a diagram description, not a code language: hand it to the
+  // diagram renderer instead of the syntax highlighter. Mermaid's own grammar
+  // is loaded by the renderer, on demand.
+  if (match[1] === "mermaid") {
+    return <MermaidBlock chart={codeString} />;
   }
 
   return (
